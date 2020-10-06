@@ -13,7 +13,6 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/cloudwatch"
 	"github.com/aws/aws-sdk-go/service/costexplorer"
 	"github.com/aws/aws-sdk-go/service/costexplorer/costexploreriface"
 )
@@ -72,36 +71,17 @@ func getServiceCost(svc costexploreriface.CostExplorerAPI) ([]*costexplorer.Grou
 	return result.ResultsByTime[0].Groups, nil
 }
 
-// getTotalCost : Get the total monthly charges for all services
-func getTotalCost(svc *cloudwatch.CloudWatch) (float64, error) {
-	params := &cloudwatch.GetMetricStatisticsInput{
-		Dimensions: []*cloudwatch.Dimension{
-			{
-				Name:  aws.String("Currency"),
-				Value: aws.String("USD"),
-			},
-		},
-		StartTime:  aws.Time(time.Now().Add(time.Hour * -24)),
-		EndTime:    aws.Time(time.Now()),
-		Period:     aws.Int64(86400),
-		Namespace:  aws.String("AWS/Billing"),
-		MetricName: aws.String("EstimatedCharges"),
-		Statistics: []*string{
-			aws.String(cloudwatch.StatisticMaximum),
-		},
-	}
-	resp, err := svc.GetMetricStatistics(params)
-	if err != nil {
-		return 0, fmt.Errorf("Failed to get metric statistics: %w", err)
+// calcTotalCost : Get the total monthly charges for all services
+func calcTotalCost(serviceBillingList []*costexplorer.Group) (float64, error) {
+	var totalCost float64
+	for _, serviceBilling := range serviceBillingList {
+		billingStr := serviceBilling.Metrics["UnblendedCost"].Amount
+		billing, _ := strconv.ParseFloat(*billingStr, 64)
+
+		totalCost += billing
 	}
 
-	if len(resp.Datapoints) == 0 {
-		return 0, fmt.Errorf("Cannot get resp.Datapoints")
-	} else if resp.Datapoints[0].Maximum == nil {
-		return 0, fmt.Errorf("Cannot get resp.Datapoints[0].Maximum")
-	}
-
-	return *resp.Datapoints[0].Maximum, nil
+	return totalCost, nil
 }
 
 func makeMessagePayload(totalCost float64, serviceBillingList []*costexplorer.Group) payload {
@@ -179,15 +159,14 @@ func postMessage(p payload) error {
 }
 
 func handler() error {
-	cw := cloudwatch.New(session.New(), &aws.Config{Region: aws.String("us-east-1")})
 	ce := costexplorer.New(session.Must(session.NewSession()))
 
-	totalCost, err := getTotalCost(cw)
+	serviceCost, err := getServiceCost(ce)
 	if err != nil {
 		return err
 	}
 
-	serviceCost, err := getServiceCost(ce)
+	totalCost, err := calcTotalCost(serviceCost)
 	if err != nil {
 		return err
 	}

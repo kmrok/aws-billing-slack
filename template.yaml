@@ -15,7 +15,7 @@ Parameters:
     Type: String
 
 Resources:
-  BillingIamRole:
+  Role:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub "${EnvironmentName}-aws-billing-slack-lambda-role"
@@ -37,10 +37,9 @@ Resources:
                   - "logs:CreateLogStream"
                   - "logs:PutLogEvents"
                   - "ce:GetCostAndUsage"
-                  - "cloudwatch:GetMetricStatistics"
                 Resource: "*"
 
-  BillingNotificationFunction:
+  Function:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: aws-billing-slack/
@@ -49,7 +48,7 @@ Resources:
       Environment:
         Variables:
           SLACK_WEBHOOK_URL: !Ref SlackWebhookUrl
-      Role: !GetAtt BillingIamRole.Arn
+      Role: !GetAtt Role.Arn
       Timeout: 10
       Events:
         NotifySlackDaily:
